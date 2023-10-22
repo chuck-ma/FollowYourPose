@@ -29,7 +29,8 @@ from .resnet import InflatedConv3d
 from einops import rearrange
 
 import sys
-sys.path.append('FollowYourPose')
+
+sys.path.append("FollowYourPose")
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -62,7 +63,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             "UpBlock3D",
             "CrossAttnUpBlock3D",
             "CrossAttnUpBlock3D",
-            "CrossAttnUpBlock3D"
+            "CrossAttnUpBlock3D",
         ),
         only_cross_attention: Union[bool, Tuple[bool]] = False,
         block_out_channels: Tuple[int] = (320, 640, 1280, 1280),
@@ -87,7 +88,9 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         time_embed_dim = block_out_channels[0] * 4
 
         # input
-        self.conv_in = InflatedConv3d(in_channels, block_out_channels[0], kernel_size=3, padding=(1, 1))
+        self.conv_in = InflatedConv3d(
+            in_channels, block_out_channels[0], kernel_size=3, padding=(1, 1)
+        )
 
         # time
         self.time_proj = Timesteps(block_out_channels[0], flip_sin_to_cos, freq_shift)
@@ -175,7 +178,9 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
 
             prev_output_channel = output_channel
             output_channel = reversed_block_out_channels[i]
-            input_channel = reversed_block_out_channels[min(i + 1, len(block_out_channels) - 1)]
+            input_channel = reversed_block_out_channels[
+                min(i + 1, len(block_out_channels) - 1)
+            ]
 
             # add upsample block for all BUT final layer
             if not is_final_block:
@@ -207,15 +212,25 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             prev_output_channel = output_channel
 
         # out
-        self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=norm_eps)
+        self.conv_norm_out = nn.GroupNorm(
+            num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=norm_eps
+        )
         self.conv_act = nn.SiLU()
-        self.conv_out = InflatedConv3d(block_out_channels[0], out_channels, kernel_size=3, padding=1)
-        
-        self.skeleton_adapter = Adapter(cin=int(3*64), channels=[320, 640, 1280, 1280][:4], nums_rb=2, ksize=1, sk=True, use_conv=False)
-        adapter_weight = torch.load('./checkpoints/pose_encoder.pth')
+        self.conv_out = InflatedConv3d(
+            block_out_channels[0], out_channels, kernel_size=3, padding=1
+        )
+
+        self.skeleton_adapter = Adapter(
+            cin=int(3 * 64),
+            channels=[320, 640, 1280, 1280][:4],
+            nums_rb=2,
+            ksize=1,
+            sk=True,
+            use_conv=False,
+        )
+        adapter_weight = torch.load("./checkpoints/pose_encoder.pth")
         self.skeleton_adapter.load_state_dict(adapter_weight)
-        
-        
+
     def set_attention_slice(self, slice_size):
         r"""
         Enable sliced attention computation.
@@ -253,7 +268,11 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             # make smallest slice possible
             slice_size = num_slicable_layers * [1]
 
-        slice_size = num_slicable_layers * [slice_size] if not isinstance(slice_size, list) else slice_size
+        slice_size = (
+            num_slicable_layers * [slice_size]
+            if not isinstance(slice_size, list)
+            else slice_size
+        )
 
         if len(slice_size) != len(sliceable_head_dims):
             raise ValueError(
@@ -270,7 +289,9 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         # Recursively walk through all the children.
         # Any children which exposes the set_attention_slice method
         # gets the message
-        def fn_recursive_set_attention_slice(module: torch.nn.Module, slice_size: List[int]):
+        def fn_recursive_set_attention_slice(
+            module: torch.nn.Module, slice_size: List[int]
+        ):
             if hasattr(module, "set_attention_slice"):
                 module.set_attention_slice(slice_size.pop())
 
@@ -282,7 +303,9 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             fn_recursive_set_attention_slice(module, reversed_slice_size)
 
     def _set_gradient_checkpointing(self, module, value=False):
-        if isinstance(module, (CrossAttnDownBlock3D, DownBlock3D, CrossAttnUpBlock3D, UpBlock3D)):
+        if isinstance(
+            module, (CrossAttnDownBlock3D, DownBlock3D, CrossAttnUpBlock3D, UpBlock3D)
+        ):
             module.gradient_checkpointing = value
 
     def forward(
@@ -294,7 +317,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         attention_mask: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         skeleton: Optional[torch.FloatTensor] = None,
-        train_or_sample: str = 'train',
+        train_or_sample: str = "train",
     ) -> Union[UNet3DConditionOutput, Tuple]:
         r"""
         Args:
@@ -358,7 +381,9 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
 
         if self.class_embedding is not None:
             if class_labels is None:
-                raise ValueError("class_labels should be provided when num_class_embeds > 0")
+                raise ValueError(
+                    "class_labels should be provided when num_class_embeds > 0"
+                )
 
             if self.config.class_embed_type == "timestep":
                 class_labels = self.time_proj(class_labels)
@@ -372,30 +397,37 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         # down
         down_block_res_samples = (sample,)
         features_adapter = self.skeleton_adapter(skeleton)
-        
+
         for idx, downsample_block in enumerate(self.down_blocks):
-            
-            if train_or_sample == 'train':
+            if train_or_sample == "train":
                 skeleton_feature = None
             else:
                 skeleton_feature = features_adapter[idx]
-                
-            if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
+
+            if (
+                hasattr(downsample_block, "has_cross_attention")
+                and downsample_block.has_cross_attention
+            ):
                 sample, res_samples = downsample_block(
                     hidden_states=sample,
                     temb=emb,
                     encoder_hidden_states=encoder_hidden_states,
                     attention_mask=attention_mask,
-                    features_adapter=skeleton_feature
+                    features_adapter=skeleton_feature,
                 )
             else:
-                sample, res_samples = downsample_block(hidden_states=sample, temb=emb, features_adapter=skeleton_feature)
+                sample, res_samples = downsample_block(
+                    hidden_states=sample, temb=emb, features_adapter=skeleton_feature
+                )
 
             down_block_res_samples += res_samples
 
         # mid
         sample = self.mid_block(
-            sample, emb, encoder_hidden_states=encoder_hidden_states, attention_mask=attention_mask
+            sample,
+            emb,
+            encoder_hidden_states=encoder_hidden_states,
+            attention_mask=attention_mask,
         )
 
         # up
@@ -403,14 +435,19 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             is_final_block = i == len(self.up_blocks) - 1
 
             res_samples = down_block_res_samples[-len(upsample_block.resnets) :]
-            down_block_res_samples = down_block_res_samples[: -len(upsample_block.resnets)]
+            down_block_res_samples = down_block_res_samples[
+                : -len(upsample_block.resnets)
+            ]
 
             # if we have not reached the final block and need to forward the
             # upsample size, we do it here
             if not is_final_block and forward_upsample_size:
                 upsample_size = down_block_res_samples[-1].shape[2:]
 
-            if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
+            if (
+                hasattr(upsample_block, "has_cross_attention")
+                and upsample_block.has_cross_attention
+            ):
                 sample = upsample_block(
                     hidden_states=sample,
                     temb=emb,
@@ -421,7 +458,10 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                 )
             else:
                 sample = upsample_block(
-                    hidden_states=sample, temb=emb, res_hidden_states_tuple=res_samples, upsample_size=upsample_size
+                    hidden_states=sample,
+                    temb=emb,
+                    res_hidden_states_tuple=res_samples,
+                    upsample_size=upsample_size,
                 )
         # post-process
         sample = self.conv_norm_out(sample)
@@ -438,7 +478,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         if subfolder is not None:
             pretrained_model_path = os.path.join(pretrained_model_path, subfolder)
 
-        config_file = os.path.join(pretrained_model_path, 'config.json')
+        config_file = os.path.join(pretrained_model_path, "config.json")
         if not os.path.isfile(config_file):
             raise RuntimeError(f"{config_file} does not exist")
         with open(config_file, "r") as f:
@@ -448,33 +488,41 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             "CrossAttnDownBlock3D",
             "CrossAttnDownBlock3D",
             "CrossAttnDownBlock3D",
-            "DownBlock3D"
+            "DownBlock3D",
         ]
         config["up_block_types"] = [
             "UpBlock3D",
             "CrossAttnUpBlock3D",
             "CrossAttnUpBlock3D",
-            "CrossAttnUpBlock3D"
+            "CrossAttnUpBlock3D",
         ]
+        config["mid_block_type"] = "UNetMidBlock3DCrossAttn"
 
         from diffusers.utils import WEIGHTS_NAME
+
         model = cls.from_config(config)
         model_file = os.path.join(pretrained_model_path, WEIGHTS_NAME)
         if not os.path.isfile(model_file):
             raise RuntimeError(f"{model_file} does not exist")
         state_dict = torch.load(model_file, map_location="cpu")
         for k, v in model.state_dict().items():
-            if '_temp.' in k:
+            if "_temp." in k:
                 state_dict.update({k: v})
         model.load_state_dict(state_dict, strict=False)
 
         return model
-    
-    
-    
+
 
 class Adapter(nn.Module):
-    def __init__(self, channels=[320, 640, 1280, 1280], nums_rb=3, cin=64, ksize=3, sk=False, use_conv=True):
+    def __init__(
+        self,
+        channels=[320, 640, 1280, 1280],
+        nums_rb=3,
+        cin=64,
+        ksize=3,
+        sk=False,
+        use_conv=True,
+    ):
         super(Adapter, self).__init__()
         self.unshuffle = nn.PixelUnshuffle(8)
         self.channels = channels
@@ -482,16 +530,34 @@ class Adapter(nn.Module):
         self.body = []
         for i in range(len(channels)):
             for j in range(nums_rb):
-                if (i!=0) and (j==0):
-                    self.body.append(ResnetBlock(channels[i-1], channels[i], down=True, ksize=ksize, sk=sk, use_conv=use_conv))
+                if (i != 0) and (j == 0):
+                    self.body.append(
+                        ResnetBlock(
+                            channels[i - 1],
+                            channels[i],
+                            down=True,
+                            ksize=ksize,
+                            sk=sk,
+                            use_conv=use_conv,
+                        )
+                    )
                 else:
-                    self.body.append(ResnetBlock(channels[i], channels[i], down=False, ksize=ksize, sk=sk, use_conv=use_conv))
+                    self.body.append(
+                        ResnetBlock(
+                            channels[i],
+                            channels[i],
+                            down=False,
+                            ksize=ksize,
+                            sk=sk,
+                            use_conv=use_conv,
+                        )
+                    )
         self.body = nn.ModuleList(self.body)
-        self.conv_in = nn.Conv2d(cin,channels[0], 3, 1, 1)
+        self.conv_in = nn.Conv2d(cin, channels[0], 3, 1, 1)
 
     def forward(self, x):
         b, t, c, h, w = x.shape
-        x = rearrange(x, 'b t c h w -> (b t) c h w')
+        x = rearrange(x, "b t c h w -> (b t) c h w")
         # unshuffle
         x = self.unshuffle(x)
         # extract features
@@ -499,20 +565,21 @@ class Adapter(nn.Module):
         x = self.conv_in(x)
         for i in range(len(self.channels)):
             for j in range(self.nums_rb):
-                idx = i*self.nums_rb +j
+                idx = i * self.nums_rb + j
                 x = self.body[idx](x)
             features.append(x)
 
-        features = [ rearrange(fn, '(b t) c h w -> b c t h w', b=b, t=t) for fn in features]
+        features = [
+            rearrange(fn, "(b t) c h w -> b c t h w", b=b, t=t) for fn in features
+        ]
         return features
-    
-    
+
 
 class ResnetBlock(nn.Module):
     def __init__(self, in_c, out_c, down, ksize=3, sk=False, use_conv=True):
         super().__init__()
-        ps = ksize//2
-        if in_c != out_c or sk==False:
+        ps = ksize // 2
+        if in_c != out_c or sk == False:
             self.in_conv = nn.Conv2d(in_c, out_c, ksize, 1, ps)
         else:
             # print('n_in')
@@ -520,7 +587,7 @@ class ResnetBlock(nn.Module):
         self.block1 = nn.Conv2d(out_c, out_c, 3, 1, 1)
         self.act = nn.ReLU()
         self.block2 = nn.Conv2d(out_c, out_c, ksize, 1, ps)
-        if sk==False:
+        if sk == False:
             self.skep = nn.Conv2d(in_c, out_c, ksize, 1, ps)
         else:
             self.skep = None
@@ -532,7 +599,7 @@ class ResnetBlock(nn.Module):
     def forward(self, x):
         if self.down == True:
             x = self.down_opt(x)
-        if self.in_conv is not None: # edit
+        if self.in_conv is not None:  # edit
             x = self.in_conv(x)
 
         h = self.block1(x)
@@ -542,7 +609,8 @@ class ResnetBlock(nn.Module):
             return h + self.skep(x)
         else:
             return h + x
-        
+
+
 class Downsample(nn.Module):
     """
     A downsampling layer with an optional convolution.
@@ -552,7 +620,7 @@ class Downsample(nn.Module):
                  downsampling occurs in the inner-two dimensions.
     """
 
-    def __init__(self, channels, use_conv, dims=2, out_channels=None,padding=1):
+    def __init__(self, channels, use_conv, dims=2, out_channels=None, padding=1):
         super().__init__()
         self.channels = channels
         self.out_channels = out_channels or channels
@@ -561,7 +629,12 @@ class Downsample(nn.Module):
         stride = 2 if dims != 3 else (1, 2, 2)
         if use_conv:
             self.op = conv_nd(
-                dims, self.channels, self.out_channels, 3, stride=stride, padding=padding
+                dims,
+                self.channels,
+                self.out_channels,
+                3,
+                stride=stride,
+                padding=padding,
             )
         else:
             assert self.channels == self.out_channels
